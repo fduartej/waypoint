@@ -94,6 +94,12 @@ func (s *Service) RunPipeline(
 		return nil, err
 	}
 
+	// Validate there are no cycles in requested pipeline to run
+	_, err = serverptypes.PipelineGraph(pipeline)
+	if err != nil {
+		return nil, err
+	}
+
 	// Generate job IDs for each of the steps. We need to know the IDs in
 	// advance to setup the dependency chain.
 	stepIds := map[string]string{}
