@@ -3,11 +3,11 @@ package singleprocess
 import (
 	"context"
 
+	"github.com/hashicorp/go-hclog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/waypoint/pkg/server"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	serverptypes "github.com/hashicorp/waypoint/pkg/server/ptypes"
@@ -100,18 +100,62 @@ func (s *Service) RunPipeline(
 		return nil, err
 	}
 
-	// Generate job IDs for each of the steps. We need to know the IDs in
-	// advance to setup the dependency chain.
 	stepIds := map[string]string{}
 	for name := range pipeline.Steps {
+		var err error
 		stepIds[name], err = server.Id()
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// Generate the jobs for each of the steps
+	stepJobs, err := s.buildStepJobs(ctx, log, req, stepIds, pipeline)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the graph for the steps so we can get the root. We enforce a
+	// single root so the root is always the first step.
+	stepGraph, err := serverptypes.PipelineGraph(pipeline)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the ordered jobs.
+	var jobIds []string
+	jobMap := map[string]*pb.Ref_PipelineStep{}
+	for _, v := range stepGraph.KahnSort() {
+		jobId := stepIds[v.(string)]
+		jobIds = append(jobIds, jobId)
+		jobMap[jobId] = &pb.Ref_PipelineStep{
+			Pipeline: pipeline.Id,
+			Step:     v.(string),
+		}
+	}
+
+	// Queue all the jobs atomically
+	if _, err := s.queueJobMulti(ctx, stepJobs); err != nil {
+		return nil, err
+	}
+
+	return &pb.RunPipelineResponse{
+		JobId:     jobIds[0],
+		AllJobIds: jobIds,
+		JobMap:    jobMap,
+	}, nil
+}
+
+func (s *Service) buildStepJobs(
+	ctx context.Context,
+	log hclog.Logger,
+	req *pb.RunPipelineRequest,
+	stepIds map[string]string,
+	pipeline *pb.Pipeline,
+) ([]*pb.QueueJobRequest, error) {
+	// Generate job IDs for each of the steps. We need to know the IDs in
+	// advance to setup the dependency chain.
 	var stepJobs []*pb.QueueJobRequest
+
 	for name, step := range pipeline.Steps {
 		var dependsOn []string
 		for _, dep := range step.DependsOn {
@@ -153,7 +197,7 @@ func (s *Service) RunPipeline(
 					log.Trace("using nil deployment to queue job, which is latest deployment")
 				case *pb.Ref_Deployment_Sequence:
 					// Look up deployment sequence here and set proto?
-					deployment, err = s.GetDeployment(ctx, &pb.GetDeploymentRequest{
+					deployment, err := s.GetDeployment(ctx, &pb.GetDeploymentRequest{
 						Ref: &pb.Ref_Operation{
 							Target: &pb.Ref_Operation_Sequence{
 								Sequence: &pb.Ref_OperationSeq{
@@ -213,33 +257,5 @@ func (s *Service) RunPipeline(
 		})
 	}
 
-	// Get the graph for the steps so we can get the root. We enforce a
-	// single root so the root is always the first step.
-	stepGraph, err := serverptypes.PipelineGraph(pipeline)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the ordered jobs.
-	var jobIds []string
-	jobMap := map[string]*pb.Ref_PipelineStep{}
-	for _, v := range stepGraph.KahnSort() {
-		jobId := stepIds[v.(string)]
-		jobIds = append(jobIds, jobId)
-		jobMap[jobId] = &pb.Ref_PipelineStep{
-			Pipeline: pipeline.Id,
-			Step:     v.(string),
-		}
-	}
-
-	// Queue all the jobs atomically
-	if _, err := s.queueJobMulti(ctx, stepJobs); err != nil {
-		return nil, err
-	}
-
-	return &pb.RunPipelineResponse{
-		JobId:     jobIds[0],
-		AllJobIds: jobIds,
-		JobMap:    jobMap,
-	}, nil
+	return stepJobs, nil
 }
