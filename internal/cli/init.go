@@ -292,23 +292,23 @@ func (c *InitCommand) hclGen() bool {
 	defer hclFile.Close()
 	c.ui.Output("Initial waypoint.hcl created!", terminal.WithStyle(terminal.SuccessBoldStyle))
 	c.ui.Output("Type \"exit\" at any point to exit the generator")
+	c.ui.Output("Name your project", terminal.WithHeaderStyle())
 	projName, err, close := c.getName("project")
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	} else if close == true {
-		c.closeBrackets(hclFile, brackets, brackets)
-		c.ui.Output("Generator exited")
+		c.exitSafe(hclFile, brackets)
 		return false
 	}
 	hclFile.Write([]byte(fmt.Sprintf("project = \"%s\"\n", projName)))
+	c.ui.Output("Name your app", terminal.WithHeaderStyle())
 	appName, err, close := c.getName("app")
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	} else if close == true {
-		c.closeBrackets(hclFile, brackets, brackets)
-		c.ui.Output("Generator exited")
+		c.exitSafe(hclFile, brackets)
 		return false
 	}
 	hclFile.Write([]byte(fmt.Sprintf("app \"%s\" {\n", appName)))
@@ -329,14 +329,16 @@ func (c *InitCommand) hclGen() bool {
 		return false
 	}
 
+	c.ui.Output("Choose build, registry, deployment platform, and releaser plugins", terminal.WithHeaderStyle())
+
+	c.ui.Output("Select a builder", terminal.WithHeaderStyle())
 	// Select a builder
 	plug, err, close := c.selectPlugin(1, fList, fPath)
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	} else if close == true {
-		c.closeBrackets(hclFile, brackets, brackets)
-		c.ui.Output("Generator exited")
+		c.exitSafe(hclFile, brackets)
 		return false
 	}
 	hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets) + "build {\n")))
@@ -349,23 +351,23 @@ func (c *InitCommand) hclGen() bool {
 			c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 			return false
 		} else if close == true {
-			c.closeBrackets(hclFile, brackets, brackets)
-			c.ui.Output("Generator exited")
+			c.exitSafe(hclFile, brackets)
 			return false
 		}
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
+		c.ui.Output("Builder configuration complete", terminal.WithSuccessStyle())
 	}
 
+	c.ui.Output("Select a registry", terminal.WithHeaderStyle())
 	// Select a registry
 	plug, err, close = c.selectPlugin(4, fList, fPath)
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	} else if close == true {
-		c.closeBrackets(hclFile, brackets, brackets)
-		c.ui.Output("Generator exited")
+		c.exitSafe(hclFile, brackets)
 		return false
 	}
 	// A registry stanza will only appear in the file if one is chosen
@@ -379,13 +381,13 @@ func (c *InitCommand) hclGen() bool {
 			c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 			return false
 		} else if close == true {
-			c.closeBrackets(hclFile, brackets, brackets)
-			c.ui.Output("Generator exited")
+			c.exitSafe(hclFile, brackets)
 			return false
 		}
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
+		c.ui.Output("Registry configuration complete", terminal.WithSuccessStyle())
 	}
 
 	// After the registry stanza we want to close the brackets on the build and registry (if it exists) stanzas
@@ -396,14 +398,14 @@ func (c *InitCommand) hclGen() bool {
 	}
 	brackets = 1
 
+	c.ui.Output("Select a deployment platform", terminal.WithHeaderStyle())
 	// Select a deployer
 	plug, err, close = c.selectPlugin(2, fList, fPath)
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	} else if close == true {
-		c.closeBrackets(hclFile, brackets, brackets)
-		c.ui.Output("Generator exited")
+		c.exitSafe(hclFile, brackets)
 		return false
 	}
 
@@ -418,13 +420,13 @@ func (c *InitCommand) hclGen() bool {
 			c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 			return false
 		} else if close == true {
-			c.closeBrackets(hclFile, brackets, brackets)
-			c.ui.Output("Generator exited")
+			c.exitSafe(hclFile, brackets)
 			return false
 		}
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
+		c.ui.Output("Deployment platform configuration complete", terminal.WithSuccessStyle())
 	}
 	// After the deployer stanza we want to close the brackets on the deployer stanza
 	err = c.closeBrackets(hclFile, brackets-1, brackets)
@@ -434,14 +436,14 @@ func (c *InitCommand) hclGen() bool {
 	}
 	brackets = 1
 
+	c.ui.Output("Select a releaser", terminal.WithHeaderStyle())
 	// Select a releaser
 	plug, err, close = c.selectPlugin(3, fList, fPath)
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	} else if close == true {
-		c.closeBrackets(hclFile, brackets, brackets)
-		c.ui.Output("Generator exited")
+		c.exitSafe(hclFile, brackets)
 		return false
 	}
 
@@ -456,13 +458,13 @@ func (c *InitCommand) hclGen() bool {
 			c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 			return false
 		} else if close == true {
-			c.closeBrackets(hclFile, brackets, brackets)
-			c.ui.Output("Generator exited")
+			c.exitSafe(hclFile, brackets)
 			return false
 		}
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
+		c.ui.Output("Releaser configuration complete", terminal.WithSuccessStyle())
 	}
 	// After the releaser stanza we want to close all the brackets
 	err = c.closeBrackets(hclFile, brackets, brackets)
@@ -470,7 +472,15 @@ func (c *InitCommand) hclGen() bool {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return false
 	}
+	c.ui.Output("All plugin configuration complete", terminal.WithSuccessStyle())
+	c.ui.Output("\"waypoint.hcl\" generated!", terminal.WithStyle(terminal.SuccessBoldStyle))
 	return true
+}
+
+func (c *InitCommand) exitSafe(file *os.File, outstanding int) error {
+	c.closeBrackets(file, outstanding, outstanding)
+	c.ui.Output("Generator exited")
+	return nil
 }
 
 func (c *InitCommand) closeBrackets(file *os.File, toClose int, outstanding int) error {
@@ -500,6 +510,7 @@ func (c *InitCommand) populatePlugins(plug PlugDocs) (map[string]string, error, 
 	if plug.PlugDocs == nil {
 		c.ui.Output("There are no required fields for this %s plugin, but there may be optional fields you can add to your .hcl file later. See the Waypoint plugin documentation for more information.", plug.Type)
 	} else {
+		c.ui.Output("Please complete the following required fields for %s", plug.Name, terminal.WithHeaderStyle())
 		for _, field := range plug.PlugDocs {
 			if field.Category == true {
 				// Subfield handling
