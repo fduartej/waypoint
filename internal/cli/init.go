@@ -269,7 +269,7 @@ type PlugDocs struct {
 			Optional bool   `json:"Optional"`
 			Category bool   `json:"Category"`
 			EnvVar   string `json:"EnvVar"`
-		}
+		} `json:"SubFields"`
 		Field    string `json:"Field"`
 		Type     string `json:"Type"`
 		Synopsis string `json:"Synopsis"`
@@ -357,7 +357,7 @@ func (c *InitCommand) hclGen() bool {
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
-		c.ui.Output("Builder configuration complete", terminal.WithSuccessStyle())
+		c.ui.Output("Step complete: builder configuration complete", terminal.WithSuccessStyle())
 	}
 
 	c.ui.Output("Select a registry", terminal.WithHeaderStyle())
@@ -387,7 +387,7 @@ func (c *InitCommand) hclGen() bool {
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
-		c.ui.Output("Registry configuration complete", terminal.WithSuccessStyle())
+		c.ui.Output("Step complete: registry configuration complete", terminal.WithSuccessStyle())
 	}
 
 	// After the registry stanza we want to close the brackets on the build and registry (if it exists) stanzas
@@ -426,7 +426,7 @@ func (c *InitCommand) hclGen() bool {
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
-		c.ui.Output("Deployment platform configuration complete", terminal.WithSuccessStyle())
+		c.ui.Output("Step complete: deployment platform configuration complete", terminal.WithSuccessStyle())
 	}
 	// After the deployer stanza we want to close the brackets on the deployer stanza
 	err = c.closeBrackets(hclFile, brackets-1, brackets)
@@ -464,7 +464,7 @@ func (c *InitCommand) hclGen() bool {
 		for key, elem := range fieldMap {
 			hclFile.Write([]byte(fmt.Sprintf(c.genIndent(brackets)+"%s = \"%s\"\n", key, elem)))
 		}
-		c.ui.Output("Releaser configuration complete", terminal.WithSuccessStyle())
+		c.ui.Output("Step complete: releaser configuration complete", terminal.WithSuccessStyle())
 	}
 	// After the releaser stanza we want to close all the brackets
 	err = c.closeBrackets(hclFile, brackets, brackets)
@@ -515,23 +515,22 @@ func (c *InitCommand) populatePlugins(plug PlugDocs) (map[string]string, error, 
 			if field.Category == true {
 				// Subfield handling
 				for _, sfield := range field.PlugSubDocs {
-					if sfield.Optional == true {
-						continue
+					if sfield.Optional == false {
+						cont, err, close := c.populateField(sfield.Field, sfield.Type, plug.Name)
+						if err != nil {
+							return m, err, false
+						} else if close == true {
+							return m, nil, true
+						}
+						m[sfield.Field] = cont
 					}
-					cont, err, close := c.populateField(sfield.Field, sfield.Type)
-					if err != nil {
-						return m, err, false
-					} else if close == true {
-						return m, nil, true
-					}
-					m[field.Field] = cont
 				}
 
 			} else {
 				//TEST CODE
 				c.ui.Output("Required field: %s", field.Field)
 
-				cont, err, close := c.populateField(field.Field, field.Type)
+				cont, err, close := c.populateField(field.Field, field.Type, plug.Name)
 				if err != nil {
 					return m, err, false
 				} else if close == true {
@@ -544,7 +543,7 @@ func (c *InitCommand) populatePlugins(plug PlugDocs) (map[string]string, error, 
 	return m, nil, false
 }
 
-func (c *InitCommand) populateField(name string, fType string) (string, error, bool) {
+func (c *InitCommand) populateField(name string, fType string, plugName string) (string, error, bool) {
 	getField := true
 	typeString := fType
 	if typeString == "" {
@@ -552,7 +551,7 @@ func (c *InitCommand) populateField(name string, fType string) (string, error, b
 	}
 	for getField {
 		fieldVal, err := c.ui.Input(&terminal.Input{
-			Prompt: fmt.Sprintf("Please enter the contents of the %s field. This should be of type %s:", name, typeString),
+			Prompt: fmt.Sprintf("Please enter the contents of the %s field for the %s plugin. This should be of type %s: ", name, plugName, typeString),
 			Style:  "",
 			Secret: false,
 		})
@@ -568,7 +567,7 @@ func (c *InitCommand) populateField(name string, fType string) (string, error, b
 		} else if strings.ToLower(fieldVal) == "" {
 			c.ui.Output(fmt.Sprintf("You have selected to skip the %s field.", name))
 			pNameConfirm, err := c.ui.Input(&terminal.Input{
-				Prompt: fmt.Sprintf("Do you really want to skip the %s field? (y/N):", name),
+				Prompt: fmt.Sprintf("Do you really want to skip the %s field? (y/N): ", name),
 				Style:  "",
 				Secret: false,
 			})
@@ -591,7 +590,7 @@ func (c *InitCommand) populateField(name string, fType string) (string, error, b
 			// TODO: field input type checking
 			c.ui.Output("You inputted \"%s\"\n", fieldVal)
 			fieldConfirm, err := c.ui.Input(&terminal.Input{
-				Prompt: fmt.Sprintf("Is this correct? (y/N):"),
+				Prompt: fmt.Sprintf("Is this correct? (y/N): "),
 				Style:  "",
 				Secret: false,
 			})
@@ -666,26 +665,12 @@ func (c *InitCommand) selectPlugin(plug int, fList []string, fPath string) (Plug
 		byteValue, _ := ioutil.ReadAll(jsonFile)
 		json.Unmarshal(byteValue, &jMap)
 
-		//TEST CODE
+		//TODO: REMOVE TEST CODE
 		json.Unmarshal(byteValue, &plugDocs)
 
 		// There is an assumption here that all plugins will have a description, we have to unmarshal all the plugins
 		// for a given plugin to get an accurate name and ensure that they exist
 		if _, ok := jMap["description"]; ok {
-
-			//TEST CODE
-			/*if plugDocs.PlugDocs == nil {
-				c.ui.Output("There are no required fields for this %s plugin, but there may be optional fields you can add to your .hcl file later. See the Waypoint plugin documentation for more information.", plugDocs.Type)
-			} else {
-				for _, field := range plugDocs.PlugDocs {
-					//TODO: add handling for subfields
-					c.ui.Output("Required field: %s", field.Field)
-				}
-			}
-			if jMap["requiredFields"] != nil {
-				c.ui.Output("Well the jmap says: %s", jMap["requiredFields"])
-			}*/
-
 			c.ui.Output(fmt.Sprintf("%d: %s", count, jMap["name"]))
 			count++
 			selList = append(selList, f)
@@ -695,11 +680,13 @@ func (c *InitCommand) selectPlugin(plug int, fList []string, fPath string) (Plug
 			delete(jMap, k)
 		}
 	}
+	// This generates a newline after the list of plugins
+	c.ui.Output("")
 	selFileName := ""
 	getSelect := true
 	for getSelect {
 		num, err := c.ui.Input(&terminal.Input{
-			Prompt: fmt.Sprintf("Please select a plugin by typing its corresponding number or type nothing to skip (1-%d):", count-1),
+			Prompt: fmt.Sprintf("Please select a plugin by typing its corresponding number or type nothing to skip (1-%d): ", count-1),
 			Style:  "",
 			Secret: false,
 		})
@@ -715,7 +702,7 @@ func (c *InitCommand) selectPlugin(plug int, fList []string, fPath string) (Plug
 		} else if val, err := strconv.Atoi(num); err == nil && (0 < val && val < count) {
 			c.ui.Output(fmt.Sprintf("You have selected the %s plugin.", nameSelList[val-1]))
 			pNameConfirm, err := c.ui.Input(&terminal.Input{
-				Prompt: fmt.Sprintf("Is this %s plugin correct? (y/N):", plugType),
+				Prompt: fmt.Sprintf("Is this %s plugin correct? (y/N): ", plugType),
 				Style:  "",
 				Secret: false,
 			})
@@ -738,7 +725,7 @@ func (c *InitCommand) selectPlugin(plug int, fList []string, fPath string) (Plug
 		} else if num == "" {
 			c.ui.Output(fmt.Sprintf("You have selected to skip the %s stage.", plugType))
 			pNameConfirm, err := c.ui.Input(&terminal.Input{
-				Prompt: fmt.Sprintf("Do you really want to skip the %s stage? (y/N):", plugType),
+				Prompt: fmt.Sprintf("Do you really want to skip the %s stage? (y/N): ", plugType),
 				Style:  "",
 				Secret: false,
 			})
@@ -752,7 +739,7 @@ func (c *InitCommand) selectPlugin(plug int, fList []string, fPath string) (Plug
 			} else if strings.ToLower(pNameConfirm) == "exit" {
 				return plugDocs, nil, true
 			} else if strings.ToLower(pNameConfirm) == "yes" || strings.ToLower(pNameConfirm) == "y" {
-				c.ui.Output("%s stage skipped\n", strings.Title(plugType))
+				c.ui.Output("Step complete: %s stage skipped", strings.Title(plugType), terminal.WithSuccessStyle())
 				plugDocs.Name = ""
 				return plugDocs, nil, false
 			} else {
@@ -773,6 +760,7 @@ func (c *InitCommand) selectPlugin(plug int, fList []string, fPath string) (Plug
 		json.Unmarshal(byteValue, &plugDocs)
 		if plugDocs.Name != "" {
 			c.ui.Output(fmt.Sprintf("You have selected the %s %s plugin.", plugDocs.Name, plugType))
+
 		} else {
 			//TODO: better error here, do we need to check again here?
 			return plugDocs, nil, true
@@ -797,7 +785,7 @@ func (c *InitCommand) getName(pa string) (string, error, bool) {
 	name := ""
 	for getName {
 		paName, err := c.ui.Input(&terminal.Input{
-			Prompt: prompt + ":",
+			Prompt: prompt + ": ",
 			Style:  "",
 			Secret: false,
 		})
@@ -815,7 +803,7 @@ func (c *InitCommand) getName(pa string) (string, error, bool) {
 		} else {
 			c.ui.Output("You inputted \"%s\"\n", paName)
 			pNameConfirm, err := c.ui.Input(&terminal.Input{
-				Prompt: fmt.Sprintf("Is this %s name correct? (y/N):", pa),
+				Prompt: fmt.Sprintf("Is this %s name correct? (y/N): ", pa),
 				Style:  "",
 				Secret: false,
 			})
